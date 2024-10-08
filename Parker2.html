@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parkering i Göteborg</title>
+    <script>
+        let userLat = 0;  // Globala variabler för användarens position
+        let userLon = 0;
+
+        // Steg 1: Hämta användarens GPS-position
+        function getGeolocation() {
+            if (navigator.geolocation) {
+                console.log("Hämtar GPS-position...");
+                navigator.geolocation.getCurrentPosition(showPosition, showError);
+            } else {
+                alert("Geolocation är inte tillgängligt i din webbläsare.");
+            }
+        }
+
+        // Steg 2: När vi har latitud och longitud, skicka API-förfrågan
+        function showPosition(position) {
+            userLat = position.coords.latitude;
+            userLon = position.coords.longitude;
+            console.log(`GPS-position: Lat ${userLat}, Lon ${userLon}`);
+
+            // Kontrollera parkeringsregler, städdagar, boendeparkering och betalparkering baserat på användarens plats
+            checkParkingRules(userLat, userLon);
+        }
+
+        // Felhantering om position inte kan hämtas
+        function showError(error) {
+            console.error("GPS-fel: ", error);
+            alert("Kunde inte hämta din plats: " + error.message);
+        }
+
+        // Steg 3: Skicka API-anrop till Göteborgs stads PublicTimeParkings, CleaningZones, ResidentialParkings och PublicTollParkings API
+        function checkParkingRules(lat, lon) {
+            const appId = '5c9bc3b9-61f0-4c30-9753-403cc7afc560';  // Din faktiska API-nyckel
+            const radius = 2000;  // Radie i meter från användarens position
+            const format = 'json';  // Vi vill ha resultatet i JSON-format
+
+            console.log("Gör API-anrop...");
+
+            // URL för PublicTimeParkings, CleaningZones, ResidentialParkings och PublicTollParkings API
+            const publicParkingUrl = `https://data.goteborg.se/ParkingService/v2.3/PublicTimeParkings/${appId}?latitude=${lat}&longitude=${lon}&radius=${radius}&format=${format}`;
+            const cleaningZonesUrl = `https://data.goteborg.se/ParkingService/v2.3/CleaningZones/${appId}?latitude=${lat}&longitude=${lon}&radius=${radius}&format=${format}`;
+            const residentialParkingUrl = `https://data.goteborg.se/ParkingService/v2.3/ResidentialParkings/${appId}?latitude=${lat}&longitude=${lon}&radius=${radius}&format=${format}`;
+            const tollParkingUrl = `https://data.goteborg.se/ParkingService/v2.3/PublicTollParkings/${appId}?latitude=${lat}&longitude=${lon}&radius=${radius}&format=${format}`;
+
+            // Gör API-anrop för parkering, städzoner, boendeparkering och betalparkering
+            Promise.all([
+                fetch(publicParkingUrl).then(response => handleFetchResponse(response, publicParkingUrl)),
+                fetch(cleaningZonesUrl).then(response => handleFetchResponse(response, cleaningZonesUrl)),
+                fetch(residentialParkingUrl).then(response => handleFetchResponse(response, residentialParkingUrl)),
+                fetch(tollParkingUrl).then(response => handleFetchResponse(response, tollParkingUrl))
+            ])
+            .then(([parkingData, cleaningData, residentialData, tollData]) => {
+                console.log('Offentlig parkering:', parkingData);
+                console.log('Städdagar:', cleaningData);
+                console.log('Boendeparkering:', residentialData);
+                console.log('Betalparkering:', tollData);
+                analyzeParkingData(parkingData, cleaningData, residentialData, tollData);  // Skicka betalparkering info vidare
+            })
+            .catch(error => {
+                console.error('Ett fel uppstod vid API-anropen:', error);
+                alert("Kunde inte hämta parkeringsinformation: " + error.message);
+            });
+        }
+
+        // Funktion för att hantera fetch-svar
+        function handleFetchResponse(response, url) {
+            console.log(`API-anrop till ${url} returnerade status: ${response.status}`);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP-fel: ${response.status} för ${url}`);
+            }
+
+            const contentType = response.headers.get("content-type");
+            if (contentType && contentType.indexOf("application/json") !== -1) {
+                return response.json();  // Om svaret är JSON, omvandla till JSON
+            } else {
+                throw new Error(`Felaktigt svar från API: förväntade JSON men fick ${contentType}`);
+            }
+        }
+
+        // Analysera och visa parkering, städdagsinformation, boendeparkering och betalparkering
+        function analyzeParkingData(parkingDataList, cleaningDataList, residentialDataList, tollDataList) {
+            let message = '';
+            let foundParking = false;
+
+            // **Filtrera parkeringar nära din position (t.ex. inom 50 meter)**
+            const filteredParking = parkingDataList.filter(parking => 
+                Math.abs(parking.Lat - userLat) < 0.0005 && Math.abs(parking.Long - userLon) < 0.0005);
+
+            filteredParking.forEach(parkingData => {
+                foundParking = true;
+                message += `Parkering: ${parkingData.Name} på lat: ${parkingData.Lat}, lon: ${parkingData.Long}\n`;
+
+                if (parkingData.FreeSpaces > 0) {
+                    message += `Lediga platser: ${parkingData.FreeSpaces}\n`;
+                } else {
+                    message += `Inga lediga platser just nu.\n`;
+                }
+
+                if (parkingData.CurrentParkingCost !== undefined) {
+                    message += `Nuvarande kostnad per timme: ${parkingData.CurrentParkingCost} SEK\n`;
+                }
+
+                if (parkingData.MaxParkingTime !== undefined) {
+                    let maxTime = parkingData.MaxParkingTime;
+                    if (maxTime < 60) {
+                        message += `Max tillåten parkeringstid: ${maxTime} minuter\n`;
+                    } else {
+                        let hours = Math.floor(maxTime / 60);
+                        let minutes = maxTime % 60;
+                        message += `Max tillåten parkeringstid: ${hours} timmar`;
+                        if (minutes > 0) {
+                            message += ` och ${minutes} minuter\n`;
+                        } else {
+                            message += `\n`;
+                        }
+                    }
+                }
+                message += '\n';  // Ny rad mellan parkeringar
+            });
+
+            // **Visa information om städdagar**
+            const currentWeek = new Date().getWeek();
+            const currentDay = new Date().getDay();  // Söndag = 0, Måndag = 1, etc.
+            cleaningDataList.forEach(cleaningZone => {
+                if (cleaningZone.WeekNumber === currentWeek && cleaningZone.DayOfWeek === currentDay) {
+                    message += `OBS! Det är städning idag på ${cleaningZone.StreetName}.\n`;
+                }
+            });
+
+            // Kontrollera om vi hittade några parkeringar
+            if (!foundParking) {
+                message = "Ingen specifik information om parkering hittades på din nuvarande plats.";
+            }
+
+            alert(message);  // Visa informationen för användaren
+        }
+
+        // Hämta aktuell vecka (om den inte redan finns inbyggd)
+        Date.prototype.getWeek = function() {
+            var onejan = new Date(this.getFullYear(), 0, 1);
+            return Math.ceil((((this - onejan) / 86400000) + onejan.getDay() + 1) / 7);
+        };
+    </script>
+</head>
+<body>
+
+<h1>Parkering i Göteborg</h1>
+<p>Klicka på knappen för att kolla parkeringen där du är:</p>
+<button onclick="getGeolocation()">Kolla parkering</button>
+
+</body>
+</html>

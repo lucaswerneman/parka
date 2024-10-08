@@ -91,7 +91,7 @@
 
             // **Filtrera parkeringar nära din position (t.ex. inom 50 meter)**
             const filteredParking = parkingDataList.filter(parking => 
-                Math.abs(parking.Lat - userLat) < 0.001 && Math.abs(parking.Long - userLon) < 0.001);
+                Math.abs(parking.Lat - userLat) < 0.01 && Math.abs(parking.Long - userLon) < 0.01);
 
             filteredParking.forEach(parkingData => {
                 foundParking = true;

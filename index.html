@@ -111,7 +111,7 @@
                     message += `Nuvarande kostnad per timme: ${parkingData.CurrentParkingCost} SEK\n`;
                 }
 
-                if (parkingData.MaxParkingTime !== undefined) {
+                if (parkingData.MaxParkingTime !== undefined && !isNaN(parkingData.MaxParkingTime)) {
                     let maxTime = parkingData.MaxParkingTime;
                     if (maxTime < 60) {
                         message += `Max tillåten parkeringstid: ${maxTime} minuter\n`;
@@ -125,7 +125,10 @@
                             message += `\n`;
                         }
                     }
+                } else {
+                    message += `Ingen maxparkeringstid tillgänglig.\n`;
                 }
+
                 message += '\n';  // Ny rad mellan parkeringar
             });
 
